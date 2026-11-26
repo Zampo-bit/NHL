@@ -3,22 +3,18 @@
 </style></head><body><header><div class="brand">🏒 NHL CENTER</div><div class="sub">Kaikki NHL:stä yhdessä paikassa</div></header><main><div class="hero"><div><div class="muted" id="date"></div><h1>NHL – tulokset ja tilastot</h1><div class="muted" id="updated">Haetaan tietoja…</div></div><button id="refresh">↻ Päivitä</button></div><nav class="tabs"><button class="active" data-show="all">Kaikki</button><button data-show="games">Ottelut</button><button data-show="stats">Tilastot</button><button data-show="news">Uutiset</button></nav><div class="grid"><section class="card wide" data-section="games"><h2>Yön tulokset, live-pelit ja otteluohjelma</h2><div id="games">Ladataan…</div></section><section class="card" data-section="stats"><h2>🏆 Pistepörssi</h2><div id="points">Ladataan…</div></section><section class="card" data-section="stats"><h2>🥅 Maalipörssi</h2><div id="goals">Ladataan…</div></section><section class="card" data-section="stats"><h2>🇫🇮 Suomalaisten pistepörssi</h2><div id="finns">Ladataan…</div></section><section class="card" data-section="stats"><h2>🔥 Joukkueiden vire / sarjataulukko</h2><div id="teams">Ladataan…</div></section><section class="card wide" data-section="news"><h2>📰 NHL-uutiset suomeksi ja englanniksi</h2><div id="news">Ladataan…</div></section></div></main><footer>Tilastot NHL:n julkisista tietolähteistä. Uutisotsikot ja linkit Google News -syötteistä. Päivitys minuutin välein.</footer>
 <script>
 const $=id=>document.getElementById(id), today=new Date();$('date').textContent=today.toLocaleDateString('fi-FI',{weekday:'long',day:'numeric',month:'long',year:'numeric'});const ymd=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;async function api(type,date){let u='/api/nhl?type='+encodeURIComponent(type)+(date?'&date='+date:'');let r=await fetch(u);if(!r.ok)throw Error('API '+r.status);return r.json()}function esc(x){return String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}function table(rows,cols){if(!rows.length)return '<div class="empty">Ei tilastotietoja saatavilla.</div>';return '<div class="tablewrap"><table><thead><tr>'+cols.map(c=>'<th>'+c[0]+'</th>').join('')+'</tr></thead><tbody>'+rows.map((r,i)=>'<tr>'+cols.map(c=>'<td>'+c[1](r,i)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>'}
-
-function leaders(data,mode){
-  let a = Array.isArray(data)
-    ? data
-    : (data[mode] || data.data || data.skaterStats || []);
-
-  return a.slice(0,10).map(p=>({
-    name: p.skaterFullName ||
-      [p.firstName?.default,p.lastName?.default].filter(Boolean).join(' ') ||
-      p.name?.default || p.name || '—',
-    team: p.teamAbbrevs || p.teamAbbrev || p.team || '—',
-    g: mode === 'goals' ? p.value : (p.goals || 0),
-    a: p.assists || 0,
-    p: mode === 'points' ? p.value : (p.points || 0)
-  }));
+function showLeaders(id,data,mode){
+  let a=leaders(data,mode);
+  $(id).innerHTML=table(a,[
+    ['#',(r,i)=>i+1],
+    ['Pelaaja',r=>'<b>'+esc(r.name)+'</b>'],
+    ['Joukkue',r=>esc(r.team)],
+    ['M',r=>r.g],
+    ['S',r=>r.a],
+    ['P',r=>'<b>'+r.p+'</b>']
+  ]);
 }
+
 async function loadGames(){let d=new Date();d.setDate(d.getDate()-1);let dates=[ymd(d),ymd(new Date())];let results=await Promise.allSettled(dates.map(x=>api('score',x)));let games=[];results.forEach(x=>{if(x.status==='fulfilled')games.push(...(x.value.games||[]))});if(!games.length){let fallback=await api('score','now');games=fallback.games||[]}if(!games.length){$('games').innerHTML='<div class="empty">Otteluita ei löytynyt valitulta ajalta.</div>';return}games.sort((a,b)=>new Date(a.startTimeUTC)-new Date(b.startTimeUTC));$('games').innerHTML=games.map(g=>{let h=g.homeTeam||{},a=g.awayTeam||{},hn=h.placeName?.default||h.name?.default||h.abbrev||'Koti',an=a.placeName?.default||a.name?.default||a.abbrev||'Vieras',st=g.gameState||g.gameStatus||'';return `<div class="game"><div class="team">${esc(an)}</div><div><div class="score">${a.score??'–'} – ${h.score??'–'}</div><div class="status">${esc(st==='FINAL'?'Lopputulos':st==='LIVE'||st==='CRIT'?'LIVE':st||'Ottelu')}</div></div><div class="team">${esc(hn)}</div></div>`}).join('')}
 async function loadStats(){for(let t of ['points','goals']){try{showLeaders(t,await api(t),t)}catch(e){$(t).innerHTML='<div class="error">Tilastohaku epäonnistui. '+esc(e.message)+'</div>'}}try{let d=await api('finns');let a=(d.data||[]).map(p=>({skaterFullName:p.skaterFullName||[p.firstName?.default,p.lastName?.default].filter(Boolean).join(' '),teamAbbrev:p.teamAbbrevs,goals:p.goals,assists:p.assists,points:p.points})).sort((x,y)=>(y.points||0)-(x.points||0));showLeaders('finns',a)}catch(e){$('finns').innerHTML='<div class="error">Suomalaistilastot eivät juuri nyt vastaa.</div>'}try{let d=await api('standings'),a=(d.standings||[]).slice().sort((x,y)=>(y.points||0)-(x.points||0)).slice(0,10);$('teams').innerHTML=table(a,[['Joukkue',r=>esc(r.teamName?.default||r.teamAbbrev?.default||'')],['O',r=>r.gamesPlayed],['P',r=>'<b>'+r.points+'</b>'],['Vire',r=>esc(r.streakCode||'—')]])}catch(e){$('teams').innerHTML='<div class="error">Sarjataulukko ei latautunut.</div>'}}
 async function loadNews(){let feeds=[['FI','https://news.google.com/rss/search?q=NHL&hl=fi&gl=FI&ceid=FI:fi'],['EN','https://news.google.com/rss/search?q=NHL+trade+rumors&hl=en-US&gl=US&ceid=US:en']];let rs=await Promise.allSettled(feeds.map(async f=>{let r=await fetch('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(f[1]));if(!r.ok)throw Error();return {lang:f[0],data:await r.json()}}));let items=[];rs.forEach(x=>{if(x.status==='fulfilled')items.push(...(x.value.data.items||[]).map(i=>({...i,lang:x.value.lang})))});items.sort((a,b)=>new Date(b.pubDate)-new Date(a.pubDate));$('news').innerHTML=items.length?items.slice(0,12).map(i=>`<div class="item"><a href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a><div class="muted">${i.lang} · ${esc(i.pubDate||'')}</div></div>`).join(''):'<div class="empty">Uutisia ei saatu. <a href="https://www.nhl.com/news" target="_blank">NHL.com</a></div>'}
